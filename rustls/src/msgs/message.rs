@@ -1,12 +1,15 @@
-use crate::enums::ProtocolVersion;
-use crate::enums::{AlertDescription, ContentType, HandshakeType};
-use crate::error::{Error, InvalidMessage};
-use crate::msgs::alert::AlertMessagePayload;
-use crate::msgs::base::Payload;
-use crate::msgs::ccs::ChangeCipherSpecPayload;
-use crate::msgs::codec::{Codec, Reader};
-use crate::msgs::enums::AlertLevel;
-use crate::msgs::handshake::HandshakeMessagePayload;
+use crate::{
+    enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion},
+    error::{Error, InvalidMessage},
+    msgs::{
+        alert::AlertMessagePayload,
+        base::Payload,
+        ccs::ChangeCipherSpecPayload,
+        codec::{Codec, Reader},
+        enums::AlertLevel,
+        handshake::HandshakeMessagePayload,
+    },
+};
 
 #[derive(Debug)]
 pub enum MessagePayload {
@@ -221,6 +224,13 @@ impl Message {
             parsed.typ == hstyp
         } else {
             false
+        }
+    }
+
+    pub fn build_app_data(payload: Payload) -> Self {
+        Self {
+            version: ProtocolVersion::TLSv1_2,
+            payload: MessagePayload::ApplicationData(payload),
         }
     }
 

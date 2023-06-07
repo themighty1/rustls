@@ -1,31 +1,34 @@
-use crate::builder::{ConfigBuilder, WantsCipherSuites};
-use crate::common_state::{CommonState, Protocol, Side};
-use crate::conn::{ConnectionCommon, ConnectionCore};
-use crate::enums::{CipherSuite, ProtocolVersion, SignatureScheme};
-use crate::error::Error;
-use crate::kx::SupportedKxGroup;
 #[cfg(feature = "logging")]
 use crate::log::trace;
-use crate::msgs::enums::NamedGroup;
-use crate::msgs::handshake::ClientExtension;
-use crate::msgs::persist;
-use crate::sign;
-use crate::suites::SupportedCipherSuite;
-use crate::verify;
-use crate::versions;
 #[cfg(feature = "secret_extraction")]
 use crate::ExtractedSecrets;
-use crate::KeyLog;
+use crate::{
+    builder::{ConfigBuilder, WantsCipherSuites},
+    common_state::{CommonState, Protocol, Side},
+    conn::{ConnectionCommon, ConnectionCore},
+    enums::{CipherSuite, ProtocolVersion, SignatureScheme},
+    error::Error,
+    kx::SupportedKxGroup,
+    msgs::{enums::NamedGroup, handshake::ClientExtension, persist},
+    sign,
+    suites::SupportedCipherSuite,
+    verify, versions, KeyLog,
+};
 
-use super::handy::{ClientSessionMemoryCache, NoClientSessionStorage};
-use super::hs;
+use super::{
+    handy::{ClientSessionMemoryCache, NoClientSessionStorage},
+    hs,
+};
 
-use std::error::Error as StdError;
-use std::marker::PhantomData;
-use std::net::IpAddr;
-use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::{fmt, io, mem};
+use std::{
+    error::Error as StdError,
+    fmt, io,
+    marker::PhantomData,
+    mem,
+    net::IpAddr,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 /// A trait for the ability to store client session data, so that sessions
 /// can be resumed in future connections.
@@ -391,8 +394,7 @@ impl StdError for InvalidDnsNameError {}
 pub(super) mod danger {
     use std::sync::Arc;
 
-    use super::verify::ServerCertVerifier;
-    use super::ClientConfig;
+    use super::{verify::ServerCertVerifier, ClientConfig};
 
     /// Accessor for dangerous configuration options.
     #[derive(Debug)]

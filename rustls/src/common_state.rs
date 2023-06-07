@@ -1,24 +1,28 @@
-use crate::enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion};
-use crate::error::{Error, InvalidMessage, PeerMisbehaved};
-use crate::key;
 #[cfg(feature = "logging")]
 use crate::log::{debug, warn};
-use crate::msgs::alert::AlertMessagePayload;
-use crate::msgs::base::Payload;
-use crate::msgs::enums::{AlertLevel, KeyUpdateRequest};
-use crate::msgs::fragmenter::MessageFragmenter;
 #[cfg(feature = "quic")]
 use crate::msgs::message::MessagePayload;
-use crate::msgs::message::{BorrowedPlainMessage, Message, OpaqueMessage, PlainMessage};
 #[cfg(feature = "quic")]
 use crate::quic;
-use crate::record_layer;
 #[cfg(feature = "secret_extraction")]
 use crate::suites::PartiallyExtractedSecrets;
-use crate::suites::SupportedCipherSuite;
 #[cfg(feature = "tls12")]
 use crate::tls12::ConnectionSecrets;
-use crate::vecbuf::ChunkVecBuffer;
+use crate::{
+    enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion},
+    error::{Error, InvalidMessage, PeerMisbehaved},
+    key,
+    msgs::{
+        alert::AlertMessagePayload,
+        base::Payload,
+        enums::{AlertLevel, KeyUpdateRequest},
+        fragmenter::MessageFragmenter,
+        message::{BorrowedPlainMessage, Message, OpaqueMessage, PlainMessage},
+    },
+    record_layer,
+    suites::SupportedCipherSuite,
+    vecbuf::ChunkVecBuffer,
+};
 
 /// Connection state common to both client and server connections.
 pub struct CommonState {
@@ -34,6 +38,8 @@ pub struct CommonState {
     sent_fatal_alert: bool,
     /// If the peer has signaled end of stream.
     pub(crate) has_received_close_notify: bool,
+    /// If the peer has sent a BadRecordMac alert.
+    pub(crate) has_received_bad_record_mac: bool,
     pub(crate) has_seen_eof: bool,
     pub(crate) received_middlebox_ccs: u8,
     pub(crate) peer_certificates: Option<Vec<key::Certificate>>,
@@ -66,6 +72,7 @@ impl CommonState {
             early_traffic: false,
             sent_fatal_alert: false,
             has_received_close_notify: false,
+            has_received_bad_record_mac: false,
             has_seen_eof: false,
             received_middlebox_ccs: 0,
             peer_certificates: None,
@@ -436,6 +443,8 @@ impl CommonState {
     }
 
     pub(crate) fn process_alert(&mut self, alert: &AlertMessagePayload) -> Result<(), Error> {
+        println!("processing alert {:?}", alert);
+
         // Reject unknown AlertLevels.
         if let AlertLevel::Unknown(_) = alert.level {
             return Err(self.send_fatal_alert(
@@ -449,6 +458,12 @@ impl CommonState {
         if alert.description == AlertDescription::CloseNotify {
             self.has_received_close_notify = true;
             return Ok(());
+        }
+
+        // If we get a BadRecordMac, make a note of it
+        if alert.description == AlertDescription::BadRecordMac {
+            println!("self.has_received_bad_record_mac = true;");
+            self.has_received_bad_record_mac = true;
         }
 
         // Warnings are nonfatal for TLS1.2, but outlawed in TLS1.3
@@ -477,16 +492,34 @@ impl CommonState {
         )
     }
 
-    pub(crate) fn send_fatal_alert(
-        &mut self,
-        desc: AlertDescription,
-        err: impl Into<Error>,
-    ) -> Error {
+    /// docs
+    pub fn send_fatal_alert(&mut self, desc: AlertDescription, err: impl Into<Error>) -> Error {
         debug_assert!(!self.sent_fatal_alert);
         let m = Message::build_alert(AlertLevel::Fatal, desc);
         self.send_msg(m, self.record_layer.is_encrypting());
         self.sent_fatal_alert = true;
         err.into()
+    }
+
+    /// Sends application data payload with an incorrect MAC. Useful when we want to trigger
+    /// a BadRecordMac alert from the server.
+    pub fn send_app_data_bad_mac(&mut self) {
+        // payload consists of
+        let explicit_nonce_len = 8;
+        let ciphertext_len = 16; // 64 for Chacha
+        let mac_len = 16;
+        let payload = Payload::new(vec![1u8; 40]);
+
+        let m = OpaqueMessage {
+            typ: ContentType::ApplicationData,
+            version: ProtocolVersion::TLSv1_2,
+            payload: payload.clone(),
+        };
+        self.queue_tls_message(m);
+
+        //let m = Message::build_app_data(payload);
+        // do not encrypt the payload; the server should treat it as if it was encrypted
+        // and has a bad MAC
     }
 
     /// Queues a close_notify warning alert to be sent in the next
@@ -536,11 +569,13 @@ impl CommonState {
             && (self.may_send_application_data || self.sendable_tls.is_empty())
     }
 
-    pub(crate) fn current_io_state(&self) -> IoState {
+    /// docs
+    pub fn current_io_state(&self) -> IoState {
         IoState {
             tls_bytes_to_write: self.sendable_tls.len(),
             plaintext_bytes_to_read: self.received_plaintext.len(),
             peer_has_closed: self.has_received_close_notify,
+            peer_sent_bad_record_mac_alert: self.has_received_bad_record_mac,
         }
     }
 
@@ -591,7 +626,10 @@ impl CommonState {
 pub struct IoState {
     tls_bytes_to_write: usize,
     plaintext_bytes_to_read: usize,
-    peer_has_closed: bool,
+    /// docs
+    pub peer_has_closed: bool,
+    /// docs
+    pub peer_sent_bad_record_mac_alert: bool,
 }
 
 impl IoState {
